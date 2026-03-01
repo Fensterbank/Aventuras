@@ -140,6 +140,11 @@ class UIStore {
   // Scroll break state - persists until user sends a new message
   userScrolledUp = $state(false)
 
+  // App visibility tracking (Android background generation)
+  isAppBackgrounded = $state(false)
+  wasBackgroundedDuringGeneration = $state(false)
+  private visibilityCleanup: (() => void) | null = null
+
   // Error state for retry
   lastGenerationError = $state<GenerationError | null>(null)
 
@@ -1513,6 +1518,7 @@ class UIStore {
    * Add a request log entry. Returns the entry ID for pairing with response.
    */
   addDebugRequest(serviceName: string, data: Record<string, unknown>, debugId?: string): string {
+    if (!settings.uiSettings.debugMode) return ''
     let id = debugId || `debug-${++this.debugLogIdCounter}-${Date.now()}`
     // Multi-step streamText reuses the same debugId for each fetch call — deduplicate
     if (debugId && this.debugLogs.some((e) => e.id === id)) {
@@ -1818,6 +1824,37 @@ class UIStore {
 
   set settingsTab(v: string) {
     this.settingsActiveTab = v
+  }
+
+  // -- App visibility tracking (Android background generation) ---------------
+
+  /** Start tracking document visibility changes for background generation detection. */
+  initVisibilityTracking() {
+    if (typeof document === 'undefined') return
+    // Avoid double-init
+    if (this.visibilityCleanup) return
+
+    const handler = () => {
+      const hidden = document.hidden
+      this.isAppBackgrounded = hidden
+      if (hidden && this.isGenerating) {
+        this.wasBackgroundedDuringGeneration = true
+      }
+    }
+
+    document.addEventListener('visibilitychange', handler)
+    this.visibilityCleanup = () => document.removeEventListener('visibilitychange', handler)
+  }
+
+  /** Clean up visibility tracking listener. */
+  destroyVisibilityTracking() {
+    this.visibilityCleanup?.()
+    this.visibilityCleanup = null
+  }
+
+  /** Reset the backgrounded-during-generation flag (call when a new generation starts). */
+  resetBackgroundedFlag() {
+    this.wasBackgroundedDuringGeneration = false
   }
 }
 
